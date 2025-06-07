@@ -1,0 +1,260 @@
+---
+title: "New pipeline"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-03-27"
+---
+
+```{r setup, include=FALSE}
+library(mixOmics)
+library(dplyr)
+feng_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\feng_data_lf.csv")
+hmp_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\hmp_data_lf.csv")
+karl_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\karl_data_lf.csv")
+lij_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\lij_data_lf.csv")
+sank_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\sank_data_lf.csv")
+yuj_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\yuj_data_lf.csv")
+qin_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\qin_data_lfv1.csv")
+
+val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJEB1786_v1.csv")
+# val = qin_data
+df = bind_rows(hmp_data, yuj_data, sank_data)
+
+```
+
+## calculate error rate
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+
+final.splsda.model = mint.plsda(X = X, Y = Y, study = study, ncomp = 2)
+# plotIndiv(final.splsda.model, legend = TRUE)
+mint_perf = perf(final.splsda.model)
+
+print(mint_perf$global.error$BER)
+print(mint_perf$global.error$error.rate.class)
+```
+
+
+
+## Delete taxa
+```{r cars}
+dff = data.frame()
+studies <- unique(df$study)
+taxa_lst <- setdiff(colnames(df), c("study", "disease"))
+
+for (species in taxa_lst) {
+  # Initialize a temporary data frame for the current species
+  df_taxa <- data.frame(species = species, stringsAsFactors = FALSE)
+  
+  # Check for presence in each study
+  for (study in studies) {
+    # Filter data for the current study and species
+    study_data <- df[df$study == study, species]
+    
+    # Determine if the species is detected or not
+    if (length(unique(study_data)) == 1) {
+      df_taxa[[study]] <- "x"
+    } else {
+      df_taxa[[study]] <- "Exist"
+    }
+  }
+  
+  # Append to the main data frame
+  dff <- rbind(dff, df_taxa)
+}
+
+dff1 = dff
+dff1[, studies] <- lapply(dff1[, studies], function(x) ifelse(x == "Exist", 1, 0))
+dff$Exist_count <- rowSums(dff1[, studies])
+one_taxa <- dff[dff$Exist_count == 1, "species"]
+df <- df[, !(colnames(df) %in% one_taxa)]
+```
+
+## model training
+```{r cars}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+```
+
+``` {r}
+# ab.mint.splsda = tune(method = "mint.splsda", X = X, Y = Y, study = study, ncomp = 1, test.keepX = seq(10, ncol(X), 1), dist = "centroids.dist")  # 15
+ab.mint.splsda = tune(method = "mint.splsda", X = X, Y = Y, study = study, ncomp = 2, test.keepX = seq(10, ncol(X), 1), already.tested.X = 15, dist = "centroids.dist")
+plot(ab.mint.splsda) # 15 in comp1, # 71 in comp2 (error rate=0.399)
+```
+
+```{r}
+ab.mint.splsda$error.rate
+```
+
+
+
+## derive taxa
+```{r}
+mint.splsda.model = mint.splsda(X = X, Y = Y, study = study, keepX = c(15, 71))
+plotIndiv(mint.splsda.model, group = df$disease, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, title = 'MINT plsda', legend = TRUE, 
+          legend.title = 'disease', legend.title.pch = 'study', ellipse = T)
+
+selected_taxa_comp1 = selectVar(mint.splsda.model, comp = 1)$name
+selected_taxa_comp2 = selectVar(mint.splsda.model, comp = 2)$name
+ttl_taxa = tolower(unique(c(selected_taxa_comp1, selected_taxa_comp2)))
+
+mint.training.perf = perf(mint.splsda.model)
+print(mint.training.perf$global.error$BER)
+print(mint.training.perf$global.error$error.rate.class)
+
+plotLoadings(mint.splsda.model, comp = 1, legend = TRUE, contrib = 'max',
+             title = 'loadings of each feature', method = 'median', ndisplay = 20)
+plotLoadings(mint.splsda.model, comp = 2, legend = TRUE, contrib = 'max',
+             title = 'loadings of each feature', method = 'median', ndisplay = 20)
+legend("topright", legend = c("T2D", 'Healthy'), fill = c("orange", "blue"))
+```
+```{r}
+loading_df = data.frame(mint.splsda.model$loadings$X)
+write.csv(loading_df, "C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\loadings_training_FS.csv", row.names = T)
+```
+
+## self sample classification
+```{r}
+predict.splsda.null <- predict(mint.splsda.model, newdata = X, 
+                             dist = "centroids.dist", study.test = study)
+
+conf_mat_c1 = get.confusion_matrix(truth = Y, predicted = predict.splsda.null$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = Y, predicted = predict.splsda.null$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+```
+
+
+
+## Introduce the testing set
+```{r pressure, echo=FALSE}
+val['study'] = 'hgma'
+names(df) = tolower(names(df))
+names(val) = tolower(names(val))
+commoncols = intersect(names(df), names(val))
+# commoncols = c(commoncols, 'study')
+df = df[, commoncols, drop = F]
+val = val[, commoncols, drop = F]
+cat('number of taxa:', length( intersect(ttl_taxa, colnames(df)) ))
+
+```
+
+```{r}
+fs_overlap_prjeb = data.frame(taxa = intersect(ttl_taxa, colnames(df)))
+write.csv(fs_overlap_prjeb, "C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\fs_prjeb_overl.csv", row.names = F)
+
+# fs_overlap_qinj = data.frame(taxa = intersect(ttl_taxa, colnames(df)))
+# write.csv(fs_overlap_qinj, "C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\fs_qinj_overl.csv", row.names = F)
+
+```
+
+
+## re-train model
+```{r}
+overl_taxa = intersect(ttl_taxa, colnames(df))
+X.sub = df[ , overl_taxa, drop = F]
+final.mint.plsda = mint.plsda(X = X.sub, Y = Y, study = study, ncomp = 2)
+
+mint_perf = perf(final.mint.plsda)
+print(mint_perf$global.error$BER)
+print(mint_perf$global.error$error.rate.class)
+```
+
+## testing 
+```{r}
+val1 = val[, c(overl_taxa, 'disease', 'study'), drop = F]
+x.test = subset(val1, select = -c(disease, study))
+y.test = val1$disease
+study.test = val1$study
+
+predict.splsda <- predict(final.mint.plsda, newdata = x.test, 
+                             dist = "centroids.dist", study.test = study.test)
+
+conf_mat_c1 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+
+```
+
+## training model performance
+```{r}
+predict.splsda <- predict(final.mint.plsda, newdata = X.sub, 
+                             dist = "centroids.dist", study.test = study)
+
+conf_mat_c1 = get.confusion_matrix(truth = Y, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = Y, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+
+```
+
+
+
+## download plotloading issue
+```{r}
+loading_df = data.frame(final.mint.plsda$loadings$X)
+write.csv(loading_df, "C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\loadings_overlappedprjeb.csv", row.names = T)
+
+```
+
+
+
+
+## further working (see the modelling performance of overlapped derived taxa between 2 testing set)
+```{r}
+ld_train <- read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\loadings_training.csv")
+ld_prjeb <- read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\loadings_overlappedprjeb.csv")
+ld_qinj  <- read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\loadings_overlappedqinj.csv")
+
+sort_loadings <- function(df, comp) {
+  df_c <- df %>% 
+    filter(.data[[comp]] != 0) %>% 
+    mutate(abs_val = abs(.data[[comp]])) %>%
+    arrange(desc(abs_val)) %>%
+    select(-abs_val) %>%
+    rename(taxa = 1)  # Rename first column to 'taxa'
+  return(df_c)
+}
+
+# Apply the function to each dataset
+ld_train_c1 <- sort_loadings(ld_train, "comp1")
+ld_train_c2 <- sort_loadings(ld_train, "comp2")
+ld_prjeb_c1 <- sort_loadings(ld_prjeb, "comp1")
+ld_prjeb_c2 <- sort_loadings(ld_prjeb, "comp2")
+ld_qinj_c1  <- sort_loadings(ld_qinj,  "comp1")
+ld_qinj_c2  <- sort_loadings(ld_qinj,  "comp2")
+
+# Make taxa lowercase
+ld_train_c1$taxa <- tolower(ld_train_c1$taxa)
+ld_train_c2$taxa <- tolower(ld_train_c2$taxa)
+
+# Compare sets
+overlap <- intersect(ld_prjeb_c1$taxa, ld_qinj_c1$taxa)
+
+df_2 = df[, c(overlap, 'disease', 'study'), drop = F]
+X2 = subset(df_2, select = -c(disease, study))
+mint.plsda.model1 = mint.plsda(X = X2, Y = Y, study = study, ncomp = 2)
+
+val2 = val[, c(overlap, 'disease', 'study'), drop = F]
+x.test2 = subset(val2, select = -c(disease, study))
+y.test2 = val2$disease
+study.test2 = val2$study
+
+predict.splsda <- predict(mint.plsda.model1, newdata = x.test2, 
+                             dist = "centroids.dist", study.test = study.test2)
+conf_mat_c1 = get.confusion_matrix(truth = y.test2, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = y.test2, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+
+```
+
+
+
+

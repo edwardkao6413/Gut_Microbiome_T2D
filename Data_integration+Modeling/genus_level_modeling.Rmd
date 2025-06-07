@@ -1,0 +1,174 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-12-18"
+---
+
+```{r setup, include=FALSE}
+library(mixOmics)
+df = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\genus_level_counts.csv")
+```
+
+## PCA
+```{r cars}
+pca_results = pca(subset(df, select = -c(disease, study)), logratio = 'none', ncomp = 2, scale = TRUE)
+cust_color = c('blue', 'orange')
+plotIndiv(pca_results, group = df$disease, title = 'PCA', 
+          legend = TRUE, col.per.group = cust_color, ellipse = TRUE, pch = 15)
+
+```
+
+## PLSDA
+```{r pressure, echo=FALSE}
+plsda_results = plsda(X = subset(df, select = -c(disease, study)), Y = df$disease, logratio = 'none')
+cust_color = c('blue', 'orange')
+plotIndiv(plsda_results, group = df$disease, title = 'plsda',  
+          col.per.group = cust_color, legend = TRUE, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, ellipse = TRUE)
+```
+```{r}
+perf_plsda = perf(plsda_results, validation = "Mfold", folds = 10, nrepeat = 10)
+print(perf_plsda$error.rate.class)
+```
+
+## MINT
+```{r}
+mint.plsda.result = mint.plsda(X = subset(df, select = -c(disease, study)), Y = df$disease,
+                               ncomp = 2, study = df$study, scale = TRUE)
+plotIndiv(mint.plsda.result, group = df$disease, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, title = 'MINT plsda', legend = TRUE, ellipse = TRUE,
+          legend.title = 'disease', legend.title.pch = 'study')
+```
+```{r}
+perf_mint = perf(mint.plsda.result, validation = "Mfold", folds = 10, nrepeat = 10)
+print(perf_mint$error.rate)
+```
+## Start full modeling process
+
+### tuning the no.of components
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+
+ab.mint.splsda.tuning = tune(method = "mint.splsda", X = X, Y = Y, study = study, ncomp = 5, test.keepX = seq(1, ncol(X), 1), dist = "centroids.dist")
+plot(ab.mint.splsda.tuning)
+```
+```{r}
+optimal.ncomp = 4
+optimal.keepX = ab.mint.splsda.tuning$choice.keepX[1:optimal.ncomp]
+optimal.keepX
+```
+### construct model based on the optimal no.of features
+```{r}
+ab.mint.splsda <- mint.splsda(X = X, Y = Y,
+                              ncomp = optimal.ncomp, keepX = optimal.keepX,
+                              study = study)
+plotIndiv(ab.mint.splsda, ind.names = F,legend=T,
+          pch = as.numeric(factor(study))+13,
+          pch.levels=study,
+          ellipse = T,
+          subtitle="sPLS-DA Sample Projection",legend.title = "Inhibitor",
+          legend.title.pch = "Experiment", 
+          size.legend = rel(0.8))
+```
+
+### import testing data
+```{r}
+test = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\AGP_data\\processed_set_v2.csv"); print(length(names(test)))
+test['study'] = "USA gut"
+common_cols = intersect(names(df), names(test))
+test = test[, common_cols, drop = F]
+
+x.test = subset(test, select = -c(disease, study))
+y.test = factor(test$disease)
+study.test = factor(test$study)
+```
+#### validation set
+```{r}
+pca_test = pca(x.test, logratio = 'none', ncomp = 2, scale = TRUE)
+cust_color = c('blue', 'orange')
+plotIndiv(pca_test, group = y.test, title = 'PCA', 
+          legend = TRUE, col.per.group = cust_color, ellipse = TRUE, pch = 15)
+
+plsda_test = plsda(X = x.test, Y = y.test, logratio = 'none', ncomp = 2, scale = T)
+plotIndiv(plsda_test, group = y.test, title = 'PLSDA', 
+          legend = TRUE, col.per.group = cust_color, ellipse = TRUE, pch = 15)
+```
+```{r}
+perf_test = perf(plsda_test, validation = "Mfold", folds = 10, nrepeat = 10)
+print(perf_test$error.rate.class)
+```
+
+
+
+### based on test data, remodeling the training set
+```{r}
+df = df[, common_cols, drop = F]
+x.train = subset(df, select = -c(disease, study))
+y.train = factor(df$disease)
+study.train = factor(df$study)
+
+mint.tune = tune(method = "mint.splsda", X = x.train, Y = y.train, study = study.train, test.keepX = seq(1, ncol(x.train), 1), dist = "centroids.dist", ncomp = 5)
+plot(mint.tune)
+```
+
+```{r}
+basic.mint.plsda = mint.plsda(x.train, y.train, study.train, ncomp = 5)
+splsda.perf <- perf(basic.mint.plsda) # optimization performance optimisation
+plot(splsda.perf)
+```
+
+```{r}
+optimal.ncomp = 2
+optimal.keepX = mint.tune$choice.keepX[1:optimal.ncomp]
+optimal.keepX
+```
+
+### formal modeling
+```{r}
+mint.model = mint.splsda(X = x.train, Y = y.train, ncomp = optimal.ncomp, keepX = optimal.keepX, study = study.train)
+plotIndiv(mint.model, ind.names = F,legend=T,
+          pch = as.numeric(factor(study.train))+14,
+          pch.levels=study.train,
+          ellipse = T,
+          subtitle="sPLS-DA Sample Projection",legend.title = "Inhibitor",
+          legend.title.pch = "Experiment", 
+          size.legend = rel(0.8))
+```
+
+### error rate
+```{r}
+mint.perf <- perf(mint.model, folds = 5, nrepeat = 10)
+plot(mint.perf)
+```
+```{r}
+print(mint.perf$global.error$error.rate.class)
+```
+
+
+### testing predict
+```{r}
+predict.splsda <- predict(mint.model, newdata = x.test, 
+                             dist = "centroids.dist", study.test = study.test)
+
+auroc(mint.model, roc.comp = 1, print = FALSE)
+auroc(mint.model, roc.comp = 2, print = FALSE)
+```
+
+## confusion matrix
+```{r}
+conf_mat_c1 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+```
+
+
+
+
+
+
+
+
+

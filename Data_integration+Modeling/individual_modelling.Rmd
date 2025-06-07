@@ -1,0 +1,114 @@
+---
+title: "Prove_sum_outperform_single"
+output: html_document
+date: "2025-05-02"
+---
+
+```{r setup, include=FALSE}
+library(mixOmics)
+library(dplyr)
+feng_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\feng_data_lf.csv")
+hmp_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\hmp_data_lf.csv")
+karl_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\karl_data_lf.csv")
+lij_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\lij_data_lf.csv")
+sank_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\sank_data_lf.csv")
+yuj_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\yuj_data_lf.csv")
+qin_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\qin_data_lfv1.csv")
+
+## _v1 means 0.01% threshold
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJEB1786_v1.csv")
+val = qin_data
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJNA422434_V1.csv")
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJNA289586(T1D)_v1.csv")
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\other_valsets\\Naguyen\\Naguyen.csv")
+# df = bind_rows(hmp_data, feng_data, yuj_data, karl_data, lij_data)
+df = karl_data
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+
+```
+
+## R Markdown
+```{r cars}
+ab.mint.splsda = tune(method = "splsda", X = X, Y = Y, ncomp = 1, test.keepX = seq(10, ncol(X), 1), validation = 'Mfold', dist = "centroids.dist") 
+# pick 15 at 1st comp
+# ab.mint.splsda = tune(method = "splsda", X = X, Y = Y, ncomp = 2, test.keepX = seq(10, ncol(X), 1), already.tested.X = 15, dist = "centroids.dist")
+# pick 15 at 2nd comp
+plot(ab.mint.splsda, optimal = F)
+
+```
+
+
+```{r}
+splsda.model = splsda(X = X, Y = Y, keepX = c(15, 15))
+plotIndiv(splsda.model, group = df$disease, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, title = 'MINT plsda', legend = TRUE, 
+          legend.title = 'disease', legend.title.pch = 'study', ellipse = T)
+
+selected_taxa_comp1 = selectVar(splsda.model, comp = 1)$name
+selected_taxa_comp2 = selectVar(splsda.model, comp = 2)$name
+ttl_taxa = tolower(unique(c(selected_taxa_comp1, selected_taxa_comp2)))
+
+training.perf = perf(splsda.model)
+print(training.perf$error.rate)
+print(training.perf$error.rate.class)
+
+plotLoadings(splsda.model, comp = 1, legend = TRUE, contrib = 'max',
+             title = 'loadings of each feature', method = 'median', ndisplay = 20)
+plotLoadings(splsda.model, comp = 2, legend = TRUE, contrib = 'max',
+             title = 'loadings of each feature', method = 'median', ndisplay = 20)
+legend("topright", legend = c("T2D", 'Healthy'), fill = c("orange", "blue"))
+
+
+```
+
+## training set performance
+```{r pressure, echo=FALSE}
+predict.splsda.null <- predict(splsda.model, newdata = X, 
+                             dist = "centroids.dist", study.test = study)
+
+conf_mat_c1 = get.confusion_matrix(truth = Y, predicted = predict.splsda.null$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = Y, predicted = predict.splsda.null$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+```
+
+# derived overlapped taxa and retrain model
+```{r}
+val['study'] = 'hgma'
+names(df) = tolower(names(df))
+names(val) = tolower(names(val))
+commoncols = intersect(names(df), names(val))
+# commoncols = c(commoncols, 'study')
+df = df[, commoncols, drop = F]
+val = val[, commoncols, drop = F]
+cat('number of taxa:', length( intersect(ttl_taxa, colnames(df)) ))
+
+overl_taxa = intersect(ttl_taxa, colnames(df))
+X.sub = df[ , overl_taxa, drop = F]
+final.plsda = plsda(X = X.sub, Y = Y, ncomp = 2)
+
+mint_perf = perf(final.plsda)
+print(mint_perf$error.rate)
+print(mint_perf$error.rate.class)
+```
+
+
+```{r}
+val1 = val[, c(overl_taxa, 'disease', 'study'), drop = F]
+x.test = subset(val1, select = -c(disease, study))
+y.test = val1$disease
+
+predict.splsda <- predict(final.plsda, newdata = x.test, 
+                             dist = "centroids.dist")
+
+conf_mat_c1 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+
+```
+
+
+

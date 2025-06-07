@@ -1,0 +1,199 @@
+---
+title: "Forward selection"
+output: html_document
+date: "2025-02-13"
+---
+
+```{r setup, include=FALSE}
+library(mixOmics)
+library(dplyr)
+feng_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\feng_data_lf.csv")
+hmp_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\hmp_data_lf.csv")
+karl_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\karl_data_lf.csv")
+lij_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\lij_data_lf.csv")
+sank_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\sank_data_lf.csv")
+yuj_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\yuj_data_lf.csv")
+qin_data = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\qin_data_lfv1.csv")
+
+# T1D
+lij_data_t1d = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\T1D\\lij_data_lf.csv")
+hei_data_t1d = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\T1D\\hei_data_lf.csv")
+kos_data_t1d = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\curated_metagenomics\\single_study\\T1D\\kos_data_lf.csv")
+
+## _v1 means 0.01% threshold
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJEB1786_v1.csv")
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJNA422434_V1.csv")
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\HGMA_data\\BioProject_PRJNA289586(T1D)_v1.csv")
+val = qin_data
+# val = read.csv("C:\\Users\\edwar\\Desktop\\Melbourne\\research_project\\other_valsets\\Naguyen\\Naguyen.csv")
+# df = bind_rows(hmp_data, feng_data, yuj_data, karl_data, lij_data)
+df = bind_rows(hmp_data, karl_data, feng_data, lij_data, yuj_data)
+```
+
+```{r}
+
+
+```
+
+## filtering taxa appearing once
+
+```{r}
+# deduce the taxa which only appear once
+# data = df
+dff = data.frame()
+studies <- unique(df$study)
+taxa_lst <- setdiff(colnames(df), c("study", "disease"))
+
+for (species in taxa_lst) {
+  # Initialize a temporary data frame for the current species
+  df_taxa <- data.frame(species = species, stringsAsFactors = FALSE)
+  
+  # Check for presence in each study
+  for (study in studies) {
+    # Filter data for the current study and species
+    study_data <- df[df$study == study, species]
+    
+    # Determine if the species is detected or not
+    if (length(unique(study_data)) == 1) {
+      df_taxa[[study]] <- "x"
+    } else {
+      df_taxa[[study]] <- "Exist"
+    }
+  }
+  
+  # Append to the main data frame
+  dff <- rbind(dff, df_taxa)
+}
+
+dff1 = dff
+dff1[, studies] <- lapply(dff1[, studies], function(x) ifelse(x == "Exist", 1, 0))
+dff$Exist_count <- rowSums(dff1[, studies])
+one_taxa <- dff[dff$Exist_count == 1, "species"]
+df <- df[, !(colnames(df) %in% one_taxa)]
+```
+
+## R Markdown
+
+```{r cars}
+# df = bind_rows(karl_data, hmp_data, sank_data)
+val['study'] = 'hgma'
+names(df) = tolower(names(df))
+names(val) = tolower(names(val))
+commoncols = intersect(names(df), names(val))
+# commoncols = c(commoncols, 'study')
+df = df[, commoncols, drop = F]
+val = val[, commoncols, drop = F]
+
+```
+
+## model building (one dataset)
+
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+
+final.plsda.model = plsda(X = X, Y = Y, ncomp = 2)
+mint_perf = perf(final.plsda.model)
+print(mint_perf$error.rate)
+print(mint_perf$error.rate.class)
+```
+
+## model building
+
+```{r pressure, echo=FALSE}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+
+final.plsda.model = mint.plsda(X = X, Y = Y, study = study, ncomp = 2)
+# plotIndiv(final.splsda.model, legend = TRUE)
+mint_perf = perf(final.plsda.model)
+
+print(mint_perf$global.error$BER)
+print(mint_perf$global.error$error.rate.class)
+
+
+plotIndiv(final.plsda.model, group = df$disease, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, title = 'MINT plsda', legend = TRUE, 
+          legend.title = 'disease', legend.title.pch = 'study', ellipse = T)
+
+```
+
+## model building 2
+
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+ab.mint.splsda.tuning = tune(method = "mint.splsda", X = X, Y = Y, study = study, ncomp = 2, test.keepX = seq(1, ncol(X), 1), dist = "centroids.dist")
+# ab.mint.splsda.tuning = tune(method = "mint.splsda", X = X, Y = Y, study = study, ncomp = 2, test.keepX = seq(1, ncol(X), 1), already.tested.X = 18, dist = "centroids.dist")
+plot(ab.mint.splsda.tuning)
+
+optimal.ncomp = 2
+optimal.keepx = ab.mint.splsda.tuning$choice.keepX[1:optimal.ncomp]
+optimal.keepx
+
+final.splsda.model = mint.splsda(X = X, Y = Y, study = study, ncomp = optimal.ncomp, keepX = optimal.keepx)
+```
+
+```{r}
+error_rates = ab.mint.splsda.tuning$error.rate; error_rates
+
+
+```
+
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+final.splsda.model = mint.splsda(X = X, Y = Y, study = study, ncomp = 2, keepX = c(18, 82))
+```
+
+```{r}
+mint_perf = perf(final.splsda.model)
+print(mint_perf$global.error$BER)
+print(mint_perf$global.error$error.rate.class)
+print(optimal.keepx)
+```
+
+# plotting
+
+```{r}
+X = subset(df, select = -c(disease, study))
+Y = df$disease
+study = factor(df$study)
+plotIndiv(final.splsda.model, group = df$disease, pch = as.numeric(factor(df$study))+13,
+          pch.levels = df$study, title = 'MINT plsda', legend = TRUE, 
+          legend.title = 'disease', legend.title.pch = 'study', ellipse = T)
+
+```
+
+## testing set
+
+```{r}
+x.test = subset(val, select = -c(disease, study))
+y.test = val$disease
+study.test = val$study
+
+predict.splsda <- predict(final.plsda.model, newdata = x.test, 
+                             dist = "centroids.dist", study.test = study.test)
+
+conf_mat_c1 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 1])
+conf_mat_c2 = get.confusion_matrix(truth = y.test, predicted = predict.splsda$class$centroids.dist[, 2])
+conf_mat_c1
+conf_mat_c2
+```
+
+```{r}
+plotLoadings(final.splsda.model, contrib = "max", method = "median", comp = 1, ndisplay = 20)
+plotLoadings(final.splsda.model, contrib = "max", method = "median", comp = 2, ndisplay = 20)
+```
+
+#### download loading info
+
+```{r}
+loading_df = data.frame(final.splsda.model$loadings$X)
+write.csv(loading_df, "C:\\Users\\edwar\\Downloads\\testing_qin.csv", row.names = T)
+
+```
