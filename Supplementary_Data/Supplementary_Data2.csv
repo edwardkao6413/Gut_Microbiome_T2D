@@ -1,0 +1,12 @@
+pathway,No.of taxa identified by model in pathway abundance dataset,no.of taxa in pathways,hypergeom_p
+PWY-5686: UMP biosynthesis,9,335,0.049729751
+VALSYN-PWY: L-valine biosynthesis,9,333,0.047089705
+PWY-5973: cis-vaccenate biosynthesis,5,114,0.043251968
+PWY-5097: L-lysine biosynthesis VI,8,254,0.034821338
+PANTO-PWY: phosphopantothenate biosynthesis I,7,191,0.027707223
+PWY-6892: thiazole biosynthesis I (E. coli),4,62,0.021419023
+METH-ACETATE-PWY: methanogenesis from acetate,2,9,0.011143854
+PWY-5695: urate biosynthesis/inosine 5'-phosphate degradation,8,205,0.007213025
+PWY-1042: glycolysis IV (plant cytosol),8,196,0.005145797
+HSERMETANA-PWY: L-methionine biosynthesis III,6,92,0.002579041
+PWY-6123: inosine-5'-phosphate biosynthesis I,9,230,0.001603261
