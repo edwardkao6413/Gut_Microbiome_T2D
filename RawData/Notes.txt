@@ -1,0 +1,21 @@
+Castro: CD, healthy, schizofrenia, T2D
+
+FengQ: adenoma, CRC, fatty liver, healthy, hypertension, T2D
+
+GhensiP_2019: healthy, mucositis, peri-implantitis, T2D
+
+HMP_2019_t2d: healthy, IGT, respiratoryinf, T2D
+
+KarlssonFH_2013: healthy, IGT, T2D
+
+LiJ_2014: healthy, IBD, perianal fistula, T1D, T2D
+
+MetaCardis_2020_a: CAD, healthy, HF, IGT, MA, MS, T2D
+
+QinJ_2012: healthy, T2D
+
+SankaranarayananK_2015: healthy, T2D
+
+ThomasAM_2018a: adenoma, cholesterolemia, CRC, healthy, hypercholesterolemia, hypertension, metastases, T2D
+
+YuJ_2015: CRC, healthy, T2D
